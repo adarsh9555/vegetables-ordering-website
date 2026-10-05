@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Panel</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="nav" id="nav"></header>
+<main class="container page">
+  <h1>Admin Dashboard</h1>
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs" style="max-width:360px">
+    <button id="tOrders" class="active">Orders</button>
+    <button id="tProducts">Products</button>
+  </div>
+
+  <section id="orders"></section>
+
+  <section id="products" style="display:none">
+    <div class="order">
+      <b>Add a new product</b>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:6px">
+        <div><label>Name</label><input id="pName"></div>
+        <div><label>Emoji</label><input id="pEmoji" placeholder="🥬"></div>
+        <div><label>Price (₹)</label><input id="pPrice" type="number" min="1"></div>
+        <div><label>Unit</label><select id="pUnit"><option>kg</option><option>bunch</option><option>pc</option><option>dozen</option></select></div>
+        <div><label>Photo (optional)</label><input id="pImg" type="file" accept="image/*"></div>
+        <div><label>Category</label><select id="pCat"><option>Vegetables</option><option>Leafy</option><option>Fruits</option></select></div>
+      </div>
+      <button class="btn" style="margin-top:14px" id="addP">Add Product</button>
+    </div>
+    <div class="scroll"><table><thead><tr><th></th><th>Name</th><th>Price</th><th>Stock</th><th>Photo</th><th></th></tr></thead><tbody id="pBody"></tbody></table></div>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script>
+const STATUSES = ['Placed', 'Confirmed', 'Out for Delivery', 'Delivered', 'Cancelled'];
+
+async function loadStats() {
+  const s = await api('/admin/stats');
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><b>${s.orders}</b>Total orders</div>
+    <div class="stat"><b>${s.pending}</b>New (pending) orders</div>
+    <div class="stat"><b>${inr(s.revenue)}</b>Total sales</div>`;
+}
+
+async function loadOrders() {
+  const orders = await api('/admin/orders');
+  document.getElementById('orders').innerHTML = orders.length ? orders.map(o => `
+    <div class="order">
+      <div class="order-head">
+        <div><b>Order #${o.id}</b> • ${esc(o.customer_name)} • <a href="tel:${esc(o.phone)}" style="color:var(--green)">${esc(o.phone)}</a>
+          <div class="muted">${fmtDate(o.created_at)}</div></div>
+        <select data-id="${o.id}" class="stSel" style="width:auto">${STATUSES.map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      </div>
+      ${o.items.map(i => `<div class="row"><span>${esc(i.name)} × ${i.qty} ${esc(i.unit)}</span><span>${inr(i.price * i.qty)}</span></div>`).join('')}
+      <div class="row total"><span>Total</span><span>${inr(o.total)}</span></div>
+      <div class="muted">📍 ${esc(o.address)}${o.notes ? '<br>📝 ' + esc(o.notes) : ''}</div>
+    </div>`).join('') : '<p class="muted">No orders yet.</p>';
+  document.querySelectorAll('.stSel').forEach(sel => sel.onchange = async () => {
+    try { await api(`/admin/orders/${sel.dataset.id}/status`, 'PATCH', { status: sel.value }); toast('Status updated and the customer was notified on WhatsApp'); loadStats(); }
+    catch (e) { toast(e.message); }
+  });
+}
+
+async function loadProducts() {
+  const list = await api('/products');
+  document.getElementById('pBody').innerHTML = list.map(p => `
+    <tr><td style="font-size:1.6rem">${p.image ? `<img class="thumb" style="width:48px;height:48px" src="${esc(p.image)}" alt="">` : p.emoji}</td><td>${esc(p.name)}</td>
+    <td><input type="number" value="${p.price}" min="1" style="width:90px" data-price="${p.id}"> / ${esc(p.unit)}</td>
+    <td><label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${p.in_stock ? 'checked' : ''} data-stock="${p.id}"> Available</label></td>
+    <td><input type="file" accept="image/*" data-img="${p.id}" style="width:170px"></td>
+    <td><button class="btn danger small" data-del="${p.id}">Delete</button></td></tr>`).join('');
+  document.querySelectorAll('[data-price]').forEach(i => i.onchange = () => api('/admin/products/' + i.dataset.price, 'PATCH', { price: i.value }).then(() => toast('Price updated')).catch(e => toast(e.message)));
+  document.querySelectorAll('[data-stock]').forEach(i => i.onchange = () => api('/admin/products/' + i.dataset.stock, 'PATCH', { in_stock: i.checked }).then(() => toast('Stock updated')).catch(e => toast(e.message)));
+  document.querySelectorAll('[data-img]').forEach(i => i.onchange = async () => {
+    if (!i.files[0]) return;
+    try { const url = await uploadImage(i.files[0]); await api('/admin/products/' + i.dataset.img, 'PATCH', { image: url }); toast('Photo updated'); loadProducts(); }
+    catch (e) { toast(e.message); }
+  });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (confirm('Delete this product?')) { await api('/admin/products/' + b.dataset.del, 'DELETE'); loadProducts(); } });
+}
+
+// Resize photo in the browser (max 800px) so uploads stay small and fast
+async function compress(file) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('This image file could not be opened')); i.src = URL.createObjectURL(file); });
+  const s = Math.min(1, 800 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+async function uploadImage(file) { const { url } = await api('/admin/upload', 'POST', { data: await compress(file) }); return url; }
+
+document.getElementById('addP').onclick = async () => {
+  try {
+    const f = document.getElementById('pImg').files[0];
+    const image = f ? await uploadImage(f) : undefined;
+    await api('/admin/products', 'POST', { name: pName.value, emoji: pEmoji.value, price: pPrice.value, unit: pUnit.value, category: pCat.value, image });
+    pName.value = pEmoji.value = pPrice.value = ''; document.getElementById('pImg').value = ''; toast('Product added'); loadProducts();
+  } catch (e) { toast(e.message); }
+};
+
+function tab(t) {
+  document.getElementById('orders').style.display = t === 'o' ? 'block' : 'none';
+  document.getElementById('products').style.display = t === 'p' ? 'block' : 'none';
+  tOrders.classList.toggle('active', t === 'o'); tProducts.classList.toggle('active', t === 'p');
+}
+tOrders.onclick = () => tab('o'); tProducts.onclick = () => tab('p');
+
+(async () => {
+  if (!await initPage(true, true)) return;
+  loadStats(); loadOrders(); loadProducts();
+  setInterval(() => { loadStats(); loadOrders(); }, 30000); // auto-refresh new orders
+})();
+</script>
+</body>
+</html>

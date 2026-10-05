@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="nav" id="nav"></header>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 id="title">Welcome back 👋</h1>
+    <p class="muted" id="sub">Log in to place your order</p>
+    <div class="tabs">
+      <button id="tabLogin" class="active">Log in</button>
+      <button id="tabReg">Register</button>
+    </div>
+    <form id="form" autocomplete="on">
+      <div id="nameBox" style="display:none"><label>Full name</label><input id="name" placeholder="Your name" autocomplete="name"></div>
+      <label>Mobile number</label><input id="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number (WhatsApp)" autocomplete="tel" required>
+      <label>Password</label><input id="password" type="password" placeholder="At least 6 characters" autocomplete="current-password" required>
+      <button class="btn" style="width:100%;margin-top:20px" id="submit">Log in</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+</div>
+<script src="/common.js"></script>
+<script>
+let mode = 'login';
+function setMode(m) {
+  mode = m;
+  const reg = m === 'register';
+  document.getElementById('nameBox').style.display = reg ? 'block' : 'none';
+  document.getElementById('tabLogin').classList.toggle('active', !reg);
+  document.getElementById('tabReg').classList.toggle('active', reg);
+  document.getElementById('submit').textContent = reg ? 'Create account' : 'Log in';
+  document.getElementById('title').textContent = reg ? 'Create your account' : 'Welcome back 👋';
+  document.getElementById('sub').textContent = reg ? 'Order updates will be sent to this number on WhatsApp' : 'Log in to place your order';
+  document.getElementById('msg').className = 'msg';
+}
+document.getElementById('tabLogin').onclick = () => setMode('login');
+document.getElementById('tabReg').onclick = () => setMode('register');
+
+document.getElementById('form').onsubmit = async e => {
+  e.preventDefault();
+  const msg = document.getElementById('msg'), btn = document.getElementById('submit');
+  btn.disabled = true;
+  try {
+    const body = { phone: document.getElementById('phone').value, password: document.getElementById('password').value };
+    if (mode === 'register') body.name = document.getElementById('name').value;
+    const data = await api('/auth/' + mode, 'POST', body);
+    Auth.set(data.token, data.user);
+    location.href = data.user.role === 'admin' ? '/admin.html' : '/';
+  } catch (err) {
+    msg.className = 'msg err'; msg.textContent = err.message;
+  } finally { btn.disabled = false; }
+};
+initPage();
+</script>
+</body>
+</html>

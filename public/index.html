@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Fresh vegetables and fruits delivered to your door. Order updates on WhatsApp.">
+<title>Fresh Sabji</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="nav" id="nav"></header>
+
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <h1>Fresh from the mandi, delivered to your door.</h1>
+      <p class="lead">Pick fresh vegetables and fruits, add your address, and you're done. Order updates reach you on WhatsApp.</p>
+      <div class="hero-cta">
+        <a class="btn lg" href="#shop">Shop now</a>
+        <a class="btn lg ghost" href="#help">Need help?</a>
+      </div>
+    </div>
+    <aside class="board" id="board" aria-label="Today's rates">
+      <div class="board-head"><h2>Today's rates</h2><span class="board-date" id="boardDate"></span></div>
+      <ul id="boardList"></ul>
+      <div class="board-foot"><span>Tap a rate to jump to that item</span><span id="boardPage"></span></div>
+    </aside>
+  </div>
+</section>
+
+<div class="strip"><div class="container" id="strip"></div></div>
+
+<section class="container shop" id="shop">
+  <nav class="rail" aria-label="Categories">
+    <h2>Categories</h2>
+    <ul id="catList"></ul>
+  </nav>
+  <div>
+    <div class="shop-head">
+      <div><h2 id="listTitle">All vegetables and fruits</h2><p class="muted" id="listCount"></p></div>
+      <label class="muted" style="margin:0">Sort by
+        <select id="sort">
+          <option value="default">Default</option>
+          <option value="asc">Price: low to high</option>
+          <option value="desc">Price: high to low</option>
+          <option value="name">Name: A to Z</option>
+        </select>
+      </label>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+</section>
+
+<section class="help" id="help">
+  <div class="container help-grid">
+    <div>
+      <h2>Need help?</h2>
+      <p class="sub" id="helpSub"></p>
+      <div class="contact" id="contact"></div>
+    </div>
+    <div class="faq" id="faq"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <a class="logo" href="/" id="footLogo"></a>
+    <nav><a href="#shop">Shop</a><a href="/orders.html">My orders</a><a href="#help">Help</a></nav>
+    <small>&copy; <span id="year"></span> Fresh vegetables, fair prices.</small>
+  </div>
+</footer>
+
+<div class="drawer-bg" id="bg"></div>
+<aside class="drawer" id="drawer" aria-label="Cart">
+  <h2>Your cart <button class="btn ghost small" id="closeCart" aria-label="Close cart">Close</button></h2>
+  <div class="body" id="cartBody"></div>
+  <div class="foot" id="cartFoot"></div>
+</aside>
+
+<script src="/common.js"></script>
+<script>
+let cfg, products = [], cart = JSON.parse(localStorage.getItem('cart') || '{}');
+let cat = 'All', sortBy = 'default', query = '', boardPage = 0;
+const stepOf = p => (p.unit === 'kg' ? 0.5 : 1);
+const $ = id => document.getElementById(id);
+
+/* ---------- cart ---------- */
+function saveCart() {
+  localStorage.setItem('cart', JSON.stringify(cart));
+  renderCart(); renderGrid(); refreshCartBadge(true);
+}
+function setQty(id, delta) {
+  const p = products.find(x => x.id === id);
+  const before = cart[id] || 0;
+  const q = Math.max(0, +(before + delta * stepOf(p)).toFixed(2));
+  if (q === 0) delete cart[id]; else cart[id] = q;
+  if (!before && q) toast(p.name + ' added to cart');
+  saveCart();
+}
+function totals() {
+  const sub = Object.entries(cart).reduce((s, [id, q]) => { const p = products.find(x => x.id == id); return s + (p ? q * p.price : 0); }, 0);
+  const delivery = sub === 0 || sub >= cfg.freeAbove ? 0 : cfg.delivery;
+  return { sub, delivery, total: sub + delivery };
+}
+function renderCart() {
+  const ids = Object.keys(cart).filter(id => products.find(p => p.id == id));
+  const t = totals();
+  $('cartBody').innerHTML = ids.length ? ids.map(id => {
+    const p = products.find(x => x.id == id);
+    return `<div class="line-item"><div>${p.image ? `<img class="thumb" src="${esc(p.image)}" alt="">` : p.emoji} <b>${esc(p.name)}</b><div class="muted">${inr(p.price)} / ${esc(p.unit)}</div></div>
+      <div class="qty" style="min-width:122px"><button class="step" aria-label="Decrease" onclick="setQty(${p.id},-1)">&minus;</button><span>${cart[id]}</span><button class="step" aria-label="Increase" onclick="setQty(${p.id},1)">+</button></div>
+      <b>${inr(p.price * cart[id])}</b></div>`;
+  }).join('') : '<p class="muted">Your cart is empty. Add some vegetables from the shop.</p>';
+
+  $('cartFoot').innerHTML = ids.length ? `
+    <div class="row"><span>Subtotal</span><span>${inr(t.sub)}</span></div>
+    <div class="row"><span>Delivery</span><span>${t.delivery ? inr(t.delivery) : 'Free'}</span></div>
+    <div class="row total"><span>Total</span><span>${inr(t.total)}</span></div>
+    ${t.delivery ? `<p class="muted">Add ${inr(cfg.freeAbove - t.sub)} more to get free delivery.</p>` : ''}
+    <label for="addr">Delivery address</label><textarea id="addr" rows="2" placeholder="House no., street, area, city, pincode"></textarea>
+    <label for="notes">Note (optional)</label><input id="notes" placeholder="e.g. small-size vegetables please">
+    <button class="btn" style="width:100%;margin-top:14px" id="placeBtn">Place order</button>
+    <div class="msg" id="orderMsg"></div>` : '';
+  const pb = $('placeBtn'); if (pb) pb.onclick = placeOrder;
+  const saved = localStorage.getItem('addr'); const a = $('addr'); if (a && saved) a.value = saved;
+}
+async function placeOrder() {
+  const msg = $('orderMsg');
+  if (!Auth.token) { location.href = '/login.html'; return; }
+  const address = $('addr').value.trim(), notes = $('notes').value.trim();
+  const btn = $('placeBtn'); btn.disabled = true; btn.textContent = 'Placing order...';
+  try {
+    const items = Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty }));
+    const { order } = await api('/orders', 'POST', { items, address, notes });
+    localStorage.setItem('addr', address);
+    cart = {}; saveCart();
+    $('cartBody').innerHTML = `<div style="text-align:center;padding:40px 10px"><h2 style="display:block;border:0;padding:0">Order #${order.id} placed</h2><p class="muted" style="margin:10px 0 18px">A confirmation has been sent on WhatsApp.</p><a class="btn" href="/orders.html">View my orders</a></div>`;
+    $('cartFoot').innerHTML = '';
+  } catch (e) {
+    msg.className = 'msg err'; msg.textContent = e.message; btn.disabled = false; btn.textContent = 'Place order';
+  }
+}
+function openCart(o) {
+  $('drawer').classList.toggle('open', o); $('bg').classList.toggle('open', o);
+  if (o) renderCart();
+}
+window.openCart = openCart;
+$('closeCart').onclick = () => openCart(false);
+$('bg').onclick = () => openCart(false);
+
+/* ---------- categories + product grid ---------- */
+function renderRail() {
+  const cats = ['All', ...new Set(products.map(p => p.category))];
+  $('catList').innerHTML = cats.map(c => {
+    const n = c === 'All' ? products.length : products.filter(p => p.category === c).length;
+    return `<li><button class="${c === cat ? 'active' : ''}" data-c="${esc(c)}"><span>${c === 'All' ? 'All items' : esc(c)}</span><span class="ct">${n}</span></button></li>`;
+  }).join('');
+  document.querySelectorAll('#catList button').forEach(b => b.onclick = () => { cat = b.dataset.c; renderRail(); renderGrid(); });
+}
+function visibleProducts() {
+  let list = products.filter(p => (cat === 'All' || p.category === cat) && (!query || p.name.toLowerCase().includes(query)));
+  if (sortBy === 'asc') list.sort((a, b) => a.price - b.price);
+  else if (sortBy === 'desc') list.sort((a, b) => b.price - a.price);
+  else if (sortBy === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
+  return list;
+}
+function renderGrid() {
+  const list = visibleProducts();
+  $('listTitle').textContent = query ? `Results for "${query}"` : (cat === 'All' ? 'All vegetables and fruits' : cat);
+  $('listCount').textContent = list.length + (list.length === 1 ? ' item' : ' items');
+  if (!list.length) {
+    $('grid').innerHTML = `<div class="empty"><h3>Nothing found</h3><p>Check the spelling or view all items.</p><button class="btn" id="clearF">View all items</button></div>`;
+    $('clearF').onclick = () => { query = ''; cat = 'All'; const ns = $('navSearch'); if (ns) ns.value = ''; renderRail(); renderGrid(); };
+    return;
+  }
+  $('grid').innerHTML = list.map(p => {
+    const qty = cart[p.id] || 0;
+    const controls = !p.in_stock ? '<span class="muted">Currently unavailable</span>'
+      : qty ? `<div class="qty"><button class="step" aria-label="Decrease" onclick="setQty(${p.id},-1)">&minus;</button><span>${qty} ${esc(p.unit)}</span><button class="step" aria-label="Increase" onclick="setQty(${p.id},1)">+</button></div>`
+      : `<button class="btn add small" onclick="setQty(${p.id},1)">Add to cart</button>`;
+    return `<article class="card ${p.in_stock ? '' : 'out'}" id="p-${p.id}">
+      <div class="emoji t-${esc(p.category)} ${p.image ? 'hasimg' : ''}">${p.image ? `<img class="pimg" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy">` : p.emoji}${p.in_stock ? '' : '<span class="ribbon">Out of stock</span>'}</div>
+      <div class="card-body">
+        <h3>${esc(p.name)}</h3>
+        <div class="priceline"><span class="tag">${inr(p.price)}</span><span class="unit">per ${esc(p.unit)}</span></div>
+        ${controls}
+      </div></article>`;
+  }).join('');
+}
+window.onShopSearch = (q, submit) => {
+  query = q.toLowerCase().trim();
+  if (query) cat = 'All';
+  renderRail(); renderGrid();
+  if (submit) $('shop').scrollIntoView({ behavior: 'smooth' });
+};
+$('sort').onchange = e => { sortBy = e.target.value; renderGrid(); };
+
+/* ---------- today's rate board (live from the product list) ---------- */
+function renderBoard() {
+  const items = products.filter(p => p.in_stock);
+  const board = $('board');
+  if (!items.length) { board.style.display = 'none'; return; }
+  const per = 6, pages = Math.ceil(items.length / per);
+  boardPage = boardPage % pages;
+  $('boardList').innerHTML = items.slice(boardPage * per, boardPage * per + per).map((p, i) =>
+    `<li style="--i:${i}"><button onclick="jumpTo(${p.id})"><span class="nm">${p.emoji} ${esc(p.name)}</span><span class="dots"></span><span class="pr">${inr(p.price)}/${esc(p.unit)}</span></button></li>`).join('');
+  $('boardPage').textContent = pages > 1 ? `${boardPage + 1} / ${pages}` : '';
+  requestAnimationFrame(() => requestAnimationFrame(() => board.classList.add('show')));
+}
+function rotateBoard() {
+  const pages = Math.ceil(products.filter(p => p.in_stock).length / 6);
+  if (pages < 2) return;
+  setInterval(() => {
+    const board = $('board');
+    board.classList.remove('show');
+    setTimeout(() => { boardPage++; renderBoard(); }, 450);
+  }, 7000);
+}
+function jumpTo(id) {
+  cat = 'All'; query = ''; const ns = $('navSearch'); if (ns) ns.value = '';
+  renderRail(); renderGrid();
+  const el = $('p-' + id); if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600);
+}
+
+/* ---------- help section ---------- */
+function renderHelp() {
+  $('helpSub').textContent = `Questions about orders, delivery or payment? Talk to us directly. ${SUPPORT.hours}.`;
+  $('contact').innerHTML = `
+    <a href="https://wa.me/${SUPPORT.whatsapp}?text=${encodeURIComponent('Hello, I need help.')}" target="_blank" rel="noopener"><span>Chat on WhatsApp</span><small>+${esc(SUPPORT.whatsapp)}</small></a>
+    <a href="tel:+91${esc(SUPPORT.phone)}"><span>Call us</span><small>${esc(SUPPORT.phone)}</small></a>
+    <a href="mailto:${esc(SUPPORT.email)}"><span>Send an email</span><small>${esc(SUPPORT.email)}</small></a>`;
+  const faq = [
+    ['When will my order be delivered?', 'Once your order is confirmed, we deliver to your address as soon as we can. Every status change is sent to you on WhatsApp.'],
+    ['How much is the delivery charge?', `${inr(cfg.delivery)}. Orders of ${inr(cfg.freeAbove)} or more get free delivery.`],
+    ['How do I pay?', 'You do not pay when placing the order. Payment is made at the time of delivery.'],
+    ['Can I change or cancel my order?', 'Message or call us on WhatsApp soon after placing it. We will check the order status and help you.'],
+    ['Where can I see my order status?', 'Log in and open "My orders". You also get a WhatsApp message whenever the status changes.']
+  ];
+  $('faq').innerHTML = faq.map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('');
+}
+
+/* ---------- start ---------- */
+(async () => {
+  $('year').textContent = new Date().getFullYear();
+  $('boardDate').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('grid').innerHTML = Array.from({ length: 8 }, () => '<div class="sk sk-card"></div>').join('');
+  cfg = await initPage();
+  $('footLogo').innerHTML = `<i aria-hidden="true"></i>${esc(cfg.store)}`;
+  $('strip').innerHTML = `<span>Free delivery above ${inr(cfg.freeAbove)}</span><span>${esc(SUPPORT.hours)}</span><span>Order updates on WhatsApp</span>`;
+  renderHelp();
+  try {
+    products = await api('/products');
+  } catch (e) {
+    $('grid').innerHTML = `<div class="empty"><h3>Could not load the product list</h3><p>Reload the page. If it keeps happening, check that the server is running.</p></div>`;
+    return;
+  }
+  Object.keys(cart).forEach(id => { if (!products.find(p => p.id == id)) delete cart[id]; });
+  const params = new URLSearchParams(location.search);
+  if (params.get('q')) { query = params.get('q').toLowerCase().trim(); }
+  renderRail(); renderGrid(); renderCart(); renderBoard(); rotateBoard(); refreshCartBadge(false);
+  if (params.get('cart')) openCart(true);
+})();
+</script>
+</body>
+</html>

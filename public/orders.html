@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My orders</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="nav" id="nav"></header>
+<main class="container page">
+  <h1>My orders 📦</h1>
+  <div id="list"><p class="muted">Loading...</p></div>
+</main>
+<script src="/common.js"></script>
+<script>
+(async () => {
+  if (!await initPage(true)) return;
+  try {
+    const orders = await api('/orders/mine');
+    document.getElementById('list').innerHTML = orders.length ? orders.map(o => `
+      <div class="order">
+        <div class="order-head">
+          <div><b>Order #${o.id}</b><div class="muted">${fmtDate(o.created_at)}</div></div>
+          <span class="status ${esc(o.status)}">${esc(o.status)}</span>
+        </div>
+        ${o.items.map(i => `<div class="row"><span>${esc(i.name)} × ${i.qty} ${esc(i.unit)}</span><span>${inr(i.price * i.qty)}</span></div>`).join('')}
+        <div class="row"><span class="muted">Delivery</span><span>${o.delivery ? inr(o.delivery) : 'Free'}</span></div>
+        <div class="row total"><span>Total</span><span>${inr(o.total)}</span></div>
+        <div class="muted">📍 ${esc(o.address)}</div>
+      </div>`).join('') : '<p class="muted">You have not placed any orders yet. <a href="/" style="color:var(--green);font-weight:700">Start shopping</a></p>';
+  } catch (e) { document.getElementById('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+})();
+</script>
+</body>
+</html>
